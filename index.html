@@ -17,11 +17,12 @@
     --hazard:#2f7d72;
     --hazard-dark:#235f57;
     --danger:#b6412f;
-    --danger-bg:#f7e2dd;
-    --medium-bg:#faedd6;
-    --medium-fg:#8a5a12;
-    --low-bg:#e2ece2;
-    --low-fg:#3d6b45;
+    --danger:#c23324;
+    --danger-bg:#c23324;
+    --medium-bg:#b3690a;
+    --medium-fg:#ffffff;
+    --low-bg:#1f8a4c;
+    --low-fg:#ffffff;
     --radius:6px;
   }
   *{box-sizing:border-box;}
@@ -186,10 +187,10 @@
   .col-photo{width:120px;text-align:center;}
   .col-remove{width:32px;text-align:center;}
 
-  select.likelihood{font-weight:600;font-size:12px;border-radius:4px;padding:5px 6px;}
+  select.likelihood{font-weight:700;font-size:11.5px;letter-spacing:.02em;border-radius:4px;padding:6px 8px;border:none;}
   select.likelihood[data-level="low"]{background:var(--low-bg);color:var(--low-fg);}
   select.likelihood[data-level="medium"]{background:var(--medium-bg);color:var(--medium-fg);}
-  select.likelihood[data-level="high"]{background:var(--danger-bg);color:var(--danger);}
+  select.likelihood[data-level="high"]{background:var(--danger-bg);color:#ffffff;}
 
   .photo-cell{display:flex;flex-direction:column;align-items:center;gap:5px;}
   .photo-thumb{
@@ -401,9 +402,10 @@
       border-radius:4px;
       padding:2px 6px;
     }
+    .print-overlay-text.likelihood-print{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .print-overlay-text.likelihood-print.low{background:var(--low-bg);color:var(--low-fg);}
     .print-overlay-text.likelihood-print.medium{background:var(--medium-bg);color:var(--medium-fg);}
-    .print-overlay-text.likelihood-print.high{background:var(--danger-bg);color:var(--danger);}
+    .print-overlay-text.likelihood-print.high{background:var(--danger-bg);color:#ffffff;}
 
     table.sigs{table-layout:fixed;width:100%;}
     table.sigs td, table.sigs th{padding:5px 6px;font-size:10px;}

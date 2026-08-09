@@ -21,23 +21,33 @@ export default async function handler(req, res) {
     return;
   }
 
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
+  // Vercel connects Blob stores using OIDC by default now (BLOB_STORE_ID +
+  // a short-lived VERCEL_OIDC_TOKEN that Vercel rotates automatically),
+  // rather than the older long-lived BLOB_READ_WRITE_TOKEN. Support both,
+  // since either can be present depending on how the store was connected.
+  const staticToken = process.env.BLOB_READ_WRITE_TOKEN;
+  const oidcToken = process.env.VERCEL_OIDC_TOKEN;
+  const storeId = process.env.BLOB_STORE_ID;
+  if (!staticToken && !(oidcToken && storeId)) {
     res.status(500).json({
-      error: 'No Blob store is connected to this project. In Vercel: Storage → Create Database → Blob, connect it to this project, then redeploy.'
+      error: 'No Blob store credentials found on this deployment. In Vercel: Storage → connect a Blob store to this project, then redeploy.'
     });
     return;
   }
+  // When BLOB_READ_WRITE_TOKEN isn't set, omit `token` entirely so the SDK
+  // falls back to its default OIDC-based authentication automatically.
+  const sdkTokenOption = staticToken ? { token: staticToken } : {};
+  const authHeaderToken = staticToken || oidcToken;
 
   if (req.method === 'GET') {
     try {
-      const { blobs } = await list({ prefix: ARCHIVE_PATHNAME, token });
+      const { blobs } = await list({ prefix: ARCHIVE_PATHNAME, ...sdkTokenOption });
       const match = blobs.find(b => b.pathname === ARCHIVE_PATHNAME);
       if (!match) {
         res.status(200).json({ archive: [] });
         return;
       }
-      const fileRes = await fetch(match.url, { headers: { Authorization: `Bearer ${token}` } });
+      const fileRes = await fetch(match.url, { headers: { Authorization: `Bearer ${authHeaderToken}` } });
       if (!fileRes.ok) {
         res.status(200).json({ archive: [] });
         return;
@@ -68,7 +78,7 @@ export default async function handler(req, res) {
         access: 'private',
         contentType: 'application/json',
         allowOverwrite: true,
-        token
+        ...sdkTokenOption
       });
       res.status(200).json({ ok: true });
     } catch (e) {

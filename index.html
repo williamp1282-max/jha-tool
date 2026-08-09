@@ -275,6 +275,58 @@
   }
   .add-row-btn:hover{background:#ece8dc;}
 
+  .steps-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .ai-check-btn{
+    margin-top:10px;
+    font-size:12.5px;
+    font-weight:600;
+    color:#fff;
+    background:var(--hazard);
+    border:1px solid var(--hazard-dark);
+    border-radius:5px;
+    padding:8px 14px;
+    cursor:pointer;
+  }
+  .ai-check-btn:hover{background:var(--hazard-dark);}
+  .ai-check-btn:disabled{opacity:.6;cursor:default;}
+
+  .ai-panel{
+    background:var(--panel);
+    border-radius:8px;
+    width:min(680px,90vw);
+    max-height:82vh;
+    padding:24px 26px;
+    overflow-y:auto;
+  }
+  .ai-title{font-size:20px;margin:0 0 4px;color:var(--ink);}
+  .ai-subtitle{font-size:12.5px;color:var(--ink-soft);margin:0 0 16px;}
+  .ai-status{font-size:13px;color:var(--ink-soft);padding:24px 4px;text-align:center;}
+  .ai-error{
+    font-size:13px;color:var(--danger);background:#f7e2dd;
+    border-radius:6px;padding:12px 14px;
+  }
+  .ai-suggestion-list{display:flex;flex-direction:column;gap:10px;}
+  .ai-suggestion{
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:12px 14px;
+  }
+  .ai-suggestion-step{
+    font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;
+    color:var(--ink-soft);margin-bottom:6px;
+  }
+  .ai-suggestion-hazard{font-weight:600;font-size:13.5px;color:var(--ink);margin-bottom:4px;}
+  .ai-suggestion-detail{font-size:12.5px;color:var(--ink-soft);margin-bottom:3px;}
+  .ai-suggestion-detail b{color:var(--ink);font-weight:600;}
+  .ai-add-btn{
+    margin-top:8px;
+    font-size:12px;font-weight:600;
+    padding:6px 12px;border-radius:5px;cursor:pointer;
+    background:var(--hazard);border:1px solid var(--hazard-dark);color:#fff;
+  }
+  .ai-add-btn:hover{background:var(--hazard-dark);}
+  .ai-add-btn:disabled{opacity:.5;cursor:default;}
+
   /* ---------- Signatures ---------- */
   table.sigs{width:100%;border-collapse:collapse;}
   table.sigs thead th{
@@ -561,7 +613,10 @@
         <tbody id="stepsBody"></tbody>
       </table>
     </div>
-    <button class="add-row-btn" id="addStepBtn" type="button">+ Add Task Step</button>
+    <div class="steps-actions no-print">
+      <button class="add-row-btn" id="addStepBtn" type="button">+ Add Task Step</button>
+      <button class="ai-check-btn" id="aiCheckBtn" type="button">🧠 Check for Missed Hazards</button>
+    </div>
   </div>
 
   <div class="panel">
@@ -607,6 +662,15 @@
   <div class="archive-panel">
     <h2 class="archive-title">Saved Job Hazard Analyses</h2>
     <div id="archiveList" class="archive-list"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="aiOverlay">
+  <button class="modal-close" id="aiClose">&times;</button>
+  <div class="ai-panel">
+    <h2 class="ai-title">Missed Hazard Check</h2>
+    <p class="ai-subtitle">AI-generated suggestions based on your current task steps — review each one before adding, this doesn't replace your own judgment or a second reviewer.</p>
+    <div id="aiBody"></div>
   </div>
 </div>
 
@@ -987,6 +1051,102 @@
     addStep(); addStep(); addStep();
     addSig(); addSig(); addSig();
   });
+
+  // ---------- AI missed-hazard check ----------
+  document.getElementById('aiCheckBtn').addEventListener('click', runAiHazardCheck);
+  document.getElementById('aiClose').addEventListener('click', () => {
+    document.getElementById('aiOverlay').classList.remove('open');
+  });
+  document.getElementById('aiOverlay').addEventListener('click', (e) => {
+    if(e.target.id === 'aiOverlay') document.getElementById('aiOverlay').classList.remove('open');
+  });
+
+  async function runAiHazardCheck(){
+    const stepsData = Array.from(stepsBody.querySelectorAll('tr')).map(tr => ({
+      step: tr.querySelector('.f-step').value,
+      hazard: tr.querySelector('.f-hazard').value,
+      consequence: tr.querySelector('.f-consequence').value,
+      likelihood: tr.querySelector('.f-likelihood').value,
+      factors: tr.querySelector('.f-factors').value,
+      control: tr.querySelector('.f-control').value
+    }));
+
+    if(!stepsData.length || stepsData.every(s => !s.step.trim())){
+      alert('Add at least one task step with a description before running a check.');
+      return;
+    }
+
+    const aiOverlay = document.getElementById('aiOverlay');
+    const aiBody = document.getElementById('aiBody');
+    const btn = document.getElementById('aiCheckBtn');
+
+    aiOverlay.classList.add('open');
+    aiBody.innerHTML = '<div class="ai-status">Reviewing your task steps for gaps…</div>';
+    btn.disabled = true;
+
+    try{
+      const res = await fetch('/api/check-hazards', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          task: document.getElementById('task').value,
+          description: document.getElementById('description').value,
+          location: document.getElementById('location').value,
+          steps: stepsData
+        })
+      });
+
+      const result = await res.json().catch(() => ({}));
+
+      if(!res.ok){
+        aiBody.innerHTML = `<div class="ai-error">${escapeHtml(result.error || 'Something went wrong reaching the hazard-check service.')}</div>`;
+        return;
+      }
+
+      const suggestions = Array.isArray(result.suggestions) ? result.suggestions : [];
+      if(!suggestions.length){
+        aiBody.innerHTML = '<div class="ai-status">No significant gaps found — your steps already look well covered.</div>';
+        return;
+      }
+
+      aiBody.innerHTML = '<div class="ai-suggestion-list"></div>';
+      const list = aiBody.querySelector('.ai-suggestion-list');
+      suggestions.forEach(s => {
+        const el = document.createElement('div');
+        el.className = 'ai-suggestion';
+        const stepLabel = s.stepNumber && s.stepNumber > 0 ? `Step ${s.stepNumber}` : 'General / site-wide';
+        el.innerHTML = `
+          <div class="ai-suggestion-step">${escapeHtml(stepLabel)}</div>
+          <div class="ai-suggestion-hazard">${escapeHtml(s.hazard || '')}</div>
+          <div class="ai-suggestion-detail"><b>Consequence:</b> ${escapeHtml(s.consequence || '')}</div>
+          <div class="ai-suggestion-detail"><b>Likelihood:</b> ${escapeHtml(s.likelihood || '')}</div>
+          <div class="ai-suggestion-detail"><b>Contributing factors:</b> ${escapeHtml(s.factors || '')}</div>
+          <div class="ai-suggestion-detail"><b>Suggested control:</b> ${escapeHtml(s.control || '')}</div>
+          <button type="button" class="ai-add-btn">+ Add as a new step</button>
+        `;
+        el.querySelector('.ai-add-btn').addEventListener('click', (e) => {
+          const refStep = s.stepNumber && s.stepNumber > 0
+            ? (stepsData[s.stepNumber - 1] ? stepsData[s.stepNumber - 1].step : '')
+            : '';
+          addStep({
+            step: refStep ? `(Related to: ${refStep})` : '',
+            hazard: s.hazard || '',
+            consequence: s.consequence || '',
+            likelihood: ['Low','Medium','High'].includes(s.likelihood) ? s.likelihood : '',
+            factors: s.factors || '',
+            control: s.control || ''
+          });
+          e.target.disabled = true;
+          e.target.textContent = 'Added ✓';
+        });
+        list.appendChild(el);
+      });
+    }catch(e){
+      aiBody.innerHTML = `<div class="ai-error">Could not reach the hazard-check service: ${escapeHtml(e.message)}</div>`;
+    }finally{
+      btn.disabled = false;
+    }
+  }
 
   function flashButton(id, text){
     const btn = document.getElementById(id);

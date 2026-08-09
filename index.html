@@ -372,6 +372,39 @@
 
     .photo-thumb, .photo-placeholder{width:100%;height:46px;}
 
+    table.steps thead th{
+      white-space:normal !important;
+      font-size:7.5px !important;
+      padding:3px 4px !important;
+      line-height:1.15;
+    }
+    .photo-placeholder{display:none !important;}
+
+    /* Native form controls (select, textarea) don't reflow to fit print
+       columns reliably — text gets truncated or clipped. We swap every
+       field to a plain, auto-wrapping text block just before printing
+       (see beforeprint/afterprint handlers) and hide the live control. */
+    .print-hidden-control{display:none !important;}
+    .print-overlay-text{
+      display:block;
+      white-space:pre-wrap;
+      word-wrap:break-word;
+      font-family:'Inter',sans-serif;
+      font-size:9px;
+      line-height:1.3;
+      color:var(--ink);
+    }
+    .print-overlay-text.likelihood-print{
+      display:inline-block;
+      font-weight:600;
+      font-size:9px;
+      border-radius:4px;
+      padding:2px 6px;
+    }
+    .print-overlay-text.likelihood-print.low{background:var(--low-bg);color:var(--low-fg);}
+    .print-overlay-text.likelihood-print.medium{background:var(--medium-bg);color:var(--medium-fg);}
+    .print-overlay-text.likelihood-print.high{background:var(--danger-bg);color:var(--danger);}
+
     table.sigs{table-layout:fixed;width:100%;}
     table.sigs td, table.sigs th{padding:5px 6px;font-size:10px;}
 
@@ -811,25 +844,53 @@
   }
 
   // ---------- Print fixes ----------
-  // 1) Textareas clip overflow text when printed (fixed rows="2" height).
-  //    Temporarily grow each one to its full content height before printing.
-  function expandTextareasForPrint(){
-    document.querySelectorAll('textarea').forEach(t => {
-      t.dataset.printPrevHeight = t.style.height || '';
-      t.style.height = 'auto';
-      t.style.height = (t.scrollHeight + 2) + 'px';
-    });
-  }
-  function restoreTextareaHeights(){
-    document.querySelectorAll('textarea').forEach(t => {
-      t.style.height = t.dataset.printPrevHeight || '';
-      delete t.dataset.printPrevHeight;
-    });
+  // Native form controls (<select>, <textarea>) don't reflow to fit a print
+  // column the way text does — selects truncate their label and textareas
+  // clip overflow content. Before printing, swap every field to a plain
+  // auto-wrapping text block that shows the same value, then restore the
+  // live control afterward.
+  let printOverlays = [];
+
+  function addOverlay(target, text, extraClass){
+    const div = document.createElement('div');
+    div.className = 'print-overlay-text' + (extraClass ? ' ' + extraClass : '');
+    div.textContent = text;
+    target.insertAdjacentElement('afterend', div);
+    target.classList.add('print-hidden-control');
+    printOverlays.push({div, target});
   }
 
-  // 2) Native <input type="date"> widgets often print blank. Swap to a plain
-  //    text input showing the formatted date for the duration of the print,
-  //    then swap back.
+  function buildPrintOverlays(){
+    // Task step table: textareas
+    document.querySelectorAll('#stepsBody textarea').forEach(t => addOverlay(t, t.value));
+
+    // Task step table: likelihood dropdown -> colored text badge
+    document.querySelectorAll('#stepsBody select.f-likelihood').forEach(sel => {
+      const label = sel.value || '';
+      addOverlay(sel, label, 'likelihood-print ' + (sel.dataset.level || ''));
+    });
+
+    // Job information header fields
+    ['task','location','description','preparedBy','supervisor','approvedBy','teamMembers'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) addOverlay(el, el.value);
+    });
+
+    // Signature name fields
+    document.querySelectorAll('.s-name').forEach(inp => addOverlay(inp, inp.value));
+  }
+
+  function removePrintOverlays(){
+    printOverlays.forEach(({div, target}) => {
+      div.remove();
+      target.classList.remove('print-hidden-control');
+    });
+    printOverlays = [];
+  }
+
+  // Native <input type="date"> widgets often print blank. Swap to a plain
+  // text input showing the formatted date for the duration of the print,
+  // then swap back.
   function formatDateForPrint(iso){
     if(!iso) return '';
     const parts = iso.split('-');
@@ -853,11 +914,11 @@
   }
 
   window.addEventListener('beforeprint', () => {
-    expandTextareasForPrint();
+    buildPrintOverlays();
     swapDateInputsForPrint();
   });
   window.addEventListener('afterprint', () => {
-    restoreTextareaHeights();
+    removePrintOverlays();
     restoreDateInputs();
   });
 })();

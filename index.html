@@ -1061,6 +1061,15 @@
     if(e.target.id === 'aiOverlay') document.getElementById('aiOverlay').classList.remove('open');
   });
 
+  function getAccessCode(){
+    let code = localStorage.getItem('jha-access-code');
+    if(!code){
+      code = window.prompt('Enter your team access code to run the AI hazard check:');
+      if(code) localStorage.setItem('jha-access-code', code);
+    }
+    return code;
+  }
+
   async function runAiHazardCheck(){
     const stepsData = Array.from(stepsBody.querySelectorAll('tr')).map(tr => ({
       step: tr.querySelector('.f-step').value,
@@ -1076,6 +1085,9 @@
       return;
     }
 
+    const accessCode = getAccessCode();
+    if(!accessCode) return; // user cancelled the prompt
+
     const aiOverlay = document.getElementById('aiOverlay');
     const aiBody = document.getElementById('aiBody');
     const btn = document.getElementById('aiCheckBtn');
@@ -1087,7 +1099,10 @@
     try{
       const res = await fetch('/api/check-hazards', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'x-access-code': accessCode
+        },
         body: JSON.stringify({
           task: document.getElementById('task').value,
           description: document.getElementById('description').value,
@@ -1097,6 +1112,12 @@
       });
 
       const result = await res.json().catch(() => ({}));
+
+      if(res.status === 401){
+        localStorage.removeItem('jha-access-code');
+        aiBody.innerHTML = `<div class="ai-error">${escapeHtml(result.error || 'Incorrect access code.')} Click "Check for Missed Hazards" again to re-enter it.</div>`;
+        return;
+      }
 
       if(!res.ok){
         aiBody.innerHTML = `<div class="ai-error">${escapeHtml(result.error || 'Something went wrong reaching the hazard-check service.')}</div>`;

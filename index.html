@@ -332,18 +332,56 @@
 
   /* ---------- Print ---------- */
   @media print{
-    body{padding:0;background:#fff;font-size:11px;}
+    body{padding:0;background:#fff;font-size:10px;}
     .toolbar,.no-print,.row-remove-btn,.add-row-btn,.photo-actions,.sig-clear{display:none !important;}
     .app{max-width:none;}
     .masthead{border-radius:0;}
-    .panel{border:none;padding:14px 16px;}
-    table.steps{min-width:0;}
-    table.steps td, table.sigs td{padding:5px 6px;}
+    .panel{border:none;padding:10px 14px;}
+
+    /* Force the steps table to fit the printable page width instead of overflowing it */
+    .steps-wrap{overflow:visible;}
+    table.steps{
+      min-width:0;
+      width:100%;
+      table-layout:fixed;
+    }
+    table.steps th, table.steps td{
+      padding:4px 5px;
+      font-size:9px;
+      word-wrap:break-word;
+      overflow-wrap:break-word;
+    }
+    table.steps td textarea, table.steps td input{
+      font-size:9px;
+      padding:1px;
+      overflow:visible;
+    }
+    /* Percentage widths set on <col> elements — table-layout:fixed honors these
+       more reliably across browsers than widths on individual td/th cells.
+       Sum = 100% across the 8 visible columns; the remove column is dropped entirely. */
+    col.cg-num{width:3%;}
+    col.cg-step{width:14%;}
+    col.cg-hazard{width:15%;}
+    col.cg-consequence{width:13%;}
+    col.cg-likelihood{width:8%;}
+    col.cg-factors{width:13%;}
+    col.cg-control{width:16%;}
+    col.cg-photo{width:18%;}
+    col.cg-remove{display:none;}
+    .col-remove, th.col-remove, td.col-remove{display:none !important;}
+
+    .photo-thumb, .photo-placeholder{width:100%;height:46px;}
+
+    table.sigs{table-layout:fixed;width:100%;}
+    table.sigs td, table.sigs th{padding:5px 6px;font-size:10px;}
+
     select.likelihood{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .hazard-bar{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     .masthead{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    canvas.sig-pad{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+
     tr{page-break-inside:avoid;}
-    @page{size:landscape;margin:12mm;}
+    @page{size:landscape;margin:10mm;}
   }
 </style>
 </head>
@@ -404,6 +442,17 @@
     <p class="section-title">Task Steps &amp; Hazard Analysis</p>
     <div class="steps-wrap">
       <table class="steps" id="stepsTable">
+        <colgroup>
+          <col class="cg-num">
+          <col class="cg-step">
+          <col class="cg-hazard">
+          <col class="cg-consequence">
+          <col class="cg-likelihood">
+          <col class="cg-factors">
+          <col class="cg-control">
+          <col class="cg-photo">
+          <col class="cg-remove">
+        </colgroup>
         <thead>
           <tr>
             <th class="col-num">#</th>
@@ -643,7 +692,26 @@
   document.getElementById('addStepBtn').addEventListener('click', () => addStep());
   document.getElementById('addSigBtn').addEventListener('click', () => addSig());
 
-  document.getElementById('printBtn').addEventListener('click', () => window.print());
+  document.getElementById('printBtn').addEventListener('click', () => {
+    updateDocumentTitle();
+    window.print();
+  });
+
+  // Browsers use document.title as the suggested filename when printing/saving
+  // to PDF. Keep it in sync with the Task/Operation field so the saved file
+  // is named after the job instead of the generic app title.
+  function slugifyForFilename(str){
+    return String(str || '')
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, '')
+      .replace(/\s+/g, ' ');
+  }
+  function updateDocumentTitle(){
+    const task = slugifyForFilename(document.getElementById('task').value);
+    document.title = task ? `JHA - ${task}` : 'Job Hazard Analysis';
+  }
+  document.getElementById('task').addEventListener('input', updateDocumentTitle);
+  updateDocumentTitle();
 
   function collectState(){
     const steps = Array.from(stepsBody.querySelectorAll('tr')).map(tr => ({
@@ -690,6 +758,8 @@
 
     sigsBody.innerHTML = ''; sigCounter = 0;
     (state.sigs && state.sigs.length ? state.sigs : []).forEach(addSig);
+
+    updateDocumentTitle();
   }
 
   document.getElementById('saveBtn').addEventListener('click', () => {
@@ -739,6 +809,57 @@
   if(!document.getElementById('jhaDate').value){
     document.getElementById('jhaDate').value = new Date().toISOString().slice(0,10);
   }
+
+  // ---------- Print fixes ----------
+  // 1) Textareas clip overflow text when printed (fixed rows="2" height).
+  //    Temporarily grow each one to its full content height before printing.
+  function expandTextareasForPrint(){
+    document.querySelectorAll('textarea').forEach(t => {
+      t.dataset.printPrevHeight = t.style.height || '';
+      t.style.height = 'auto';
+      t.style.height = (t.scrollHeight + 2) + 'px';
+    });
+  }
+  function restoreTextareaHeights(){
+    document.querySelectorAll('textarea').forEach(t => {
+      t.style.height = t.dataset.printPrevHeight || '';
+      delete t.dataset.printPrevHeight;
+    });
+  }
+
+  // 2) Native <input type="date"> widgets often print blank. Swap to a plain
+  //    text input showing the formatted date for the duration of the print,
+  //    then swap back.
+  function formatDateForPrint(iso){
+    if(!iso) return '';
+    const parts = iso.split('-');
+    if(parts.length !== 3) return iso;
+    const [y,m,d] = parts;
+    return `${m}/${d}/${y}`;
+  }
+  function swapDateInputsForPrint(){
+    document.querySelectorAll('input[type="date"]').forEach(inp => {
+      inp.dataset.isoValue = inp.value;
+      inp.type = 'text';
+      inp.value = formatDateForPrint(inp.dataset.isoValue);
+    });
+  }
+  function restoreDateInputs(){
+    document.querySelectorAll('input[data-iso-value]').forEach(inp => {
+      inp.value = inp.dataset.isoValue;
+      inp.type = 'date';
+      delete inp.dataset.isoValue;
+    });
+  }
+
+  window.addEventListener('beforeprint', () => {
+    expandTextareasForPrint();
+    swapDateInputsForPrint();
+  });
+  window.addEventListener('afterprint', () => {
+    restoreTextareaHeights();
+    restoreDateInputs();
+  });
 })();
 </script>
 

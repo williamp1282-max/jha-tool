@@ -396,6 +396,32 @@
     margin:0 0 16px;
     color:var(--ink);
   }
+  .archive-header-row{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .archive-header-row .archive-title{margin-bottom:4px;}
+  .archive-header-actions{display:flex;gap:8px;flex-shrink:0;}
+  .archive-io-btn{
+    font-size:12px;
+    font-weight:600;
+    padding:6px 12px;
+    border-radius:5px;
+    cursor:pointer;
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--ink);
+  }
+  .archive-io-btn:hover{background:#f3f1ea;}
+  .archive-io-status{
+    font-size:12px;
+    margin:0 0 14px;
+  }
+  .archive-io-status.success{color:#1f8a4c;}
+  .archive-io-status.error{color:var(--danger);}
   .archive-list{display:flex;flex-direction:column;gap:10px;}
   .archive-empty{
     font-size:13px;
@@ -660,7 +686,15 @@
 <div class="modal-overlay" id="archiveOverlay">
   <button class="modal-close" id="archiveClose">&times;</button>
   <div class="archive-panel">
-    <h2 class="archive-title">Saved Job Hazard Analyses</h2>
+    <div class="archive-header-row">
+      <h2 class="archive-title">Saved Job Hazard Analyses</h2>
+      <div class="archive-header-actions">
+        <button type="button" class="archive-io-btn" id="exportArchiveBtn">⬇ Export All</button>
+        <button type="button" class="archive-io-btn" id="importArchiveBtn">⬆ Import</button>
+        <input type="file" id="importArchiveInput" accept=".json,application/json" style="display:none;">
+      </div>
+    </div>
+    <div id="archiveIoStatus" class="archive-io-status"></div>
     <div id="archiveList" class="archive-list"></div>
   </div>
 </div>
@@ -1033,7 +1067,93 @@
     });
   }
 
+  // ---------- Export / Import the whole archive as a JSON file ----------
+  function showArchiveIoStatus(text, cls){
+    const el = document.getElementById('archiveIoStatus');
+    el.textContent = text;
+    el.className = 'archive-io-status' + (cls ? ' ' + cls : '');
+  }
+
+  document.getElementById('exportArchiveBtn').addEventListener('click', () => {
+    const archive = loadArchive();
+    if(!archive.length){
+      showArchiveIoStatus('No saved JHAs to export yet.', 'error');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(archive, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `jha-archive-export-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showArchiveIoStatus(`Exported ${archive.length} saved JHA${archive.length === 1 ? '' : 's'}.`, 'success');
+  });
+
+  document.getElementById('importArchiveBtn').addEventListener('click', () => {
+    document.getElementById('importArchiveInput').click();
+  });
+
+  document.getElementById('importArchiveInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      let imported;
+      try{
+        imported = JSON.parse(ev.target.result);
+      }catch(err){
+        showArchiveIoStatus('That file isn\'t valid JSON.', 'error');
+        e.target.value = '';
+        return;
+      }
+      // Accept either a full exported archive (array of records) or a
+      // single record/data object, so a stray file still imports something.
+      let incoming = [];
+      if(Array.isArray(imported)){
+        incoming = imported;
+      } else if(imported && typeof imported === 'object'){
+        incoming = [imported];
+      }
+      incoming = incoming.filter(r => r && (r.data || r.task || r.jhaNo));
+
+      if(!incoming.length){
+        showArchiveIoStatus('No recognizable saved JHAs found in that file.', 'error');
+        e.target.value = '';
+        return;
+      }
+
+      const existing = loadArchive();
+      let added = 0, updated = 0;
+      incoming.forEach(rec => {
+        // Normalize in case someone imports a bare {data: {...}} without our
+        // usual id/jhaNo/task/location/savedAt wrapper fields.
+        const normalized = {
+          id: rec.id || generateRecordId(),
+          jhaNo: rec.jhaNo || (rec.data && rec.data.jhaNo) || '',
+          task: rec.task || (rec.data && rec.data.task) || '',
+          location: rec.location || (rec.data && rec.data.location) || '',
+          savedAt: rec.savedAt || new Date().toISOString(),
+          data: rec.data || rec
+        };
+        const idx = existing.findIndex(r => r.id === normalized.id);
+        if(idx >= 0){ existing[idx] = normalized; updated++; }
+        else { existing.push(normalized); added++; }
+      });
+
+      persistArchive(existing);
+      renderArchiveList();
+      showArchiveIoStatus(`Imported ${added} new, updated ${updated} existing.`, 'success');
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
+
   document.getElementById('loadBtn').addEventListener('click', () => {
+    document.getElementById('archiveIoStatus').textContent = '';
     renderArchiveList();
     document.getElementById('archiveOverlay').classList.add('open');
   });

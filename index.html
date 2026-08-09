@@ -331,6 +331,63 @@
     background:none;border:none;cursor:pointer;
   }
 
+  .archive-panel{
+    background:var(--panel);
+    border-radius:8px;
+    width:min(640px,90vw);
+    max-height:80vh;
+    padding:24px 26px;
+    overflow-y:auto;
+  }
+  .archive-title{
+    font-size:20px;
+    margin:0 0 16px;
+    color:var(--ink);
+  }
+  .archive-list{display:flex;flex-direction:column;gap:10px;}
+  .archive-empty{
+    font-size:13px;
+    color:var(--ink-soft);
+    padding:20px 4px;
+    text-align:center;
+  }
+  .archive-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:12px 14px;
+  }
+  .archive-item-info{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .archive-item-task{
+    font-weight:600;
+    font-size:14px;
+    color:var(--ink);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .archive-item-meta{
+    font-size:11.5px;
+    color:var(--ink-soft);
+  }
+  .archive-item-actions{display:flex;gap:8px;flex-shrink:0;}
+  .archive-open-btn, .archive-delete-btn{
+    font-size:12px;
+    font-weight:600;
+    padding:6px 12px;
+    border-radius:5px;
+    cursor:pointer;
+    border:1px solid var(--line);
+    background:#fff;
+  }
+  .archive-open-btn{background:var(--hazard);border-color:var(--hazard-dark);color:#fff;}
+  .archive-open-btn:hover{background:var(--hazard-dark);}
+  .archive-delete-btn{color:var(--danger);border-color:#e0b7ae;}
+  .archive-delete-btn:hover{background:#f7e2dd;}
+
   /* ---------- Print ---------- */
   @media print{
     body{padding:0;background:#fff;font-size:10px;}
@@ -532,8 +589,8 @@
 <div class="toolbar no-print">
   <div class="group">
     <button class="btn primary" id="printBtn">🖨 Print / Save PDF</button>
-    <button class="btn accent" id="saveBtn">💾 Save Draft</button>
-    <button class="btn" id="loadBtn">📂 Load Draft</button>
+    <button class="btn accent" id="saveBtn">💾 Save JHA</button>
+    <button class="btn" id="loadBtn">📂 Open Saved JHAs</button>
   </div>
   <div class="group">
     <button class="btn ghost danger-outline" id="newBtn">＋ New JHA</button>
@@ -543,6 +600,14 @@
 <div class="modal-overlay" id="modalOverlay">
   <button class="modal-close" id="modalClose">&times;</button>
   <img id="modalImg" src="" alt="Hazard photo">
+</div>
+
+<div class="modal-overlay" id="archiveOverlay">
+  <button class="modal-close" id="archiveClose">&times;</button>
+  <div class="archive-panel">
+    <h2 class="archive-title">Saved Job Hazard Analyses</h2>
+    <div id="archiveList" class="archive-list"></div>
+  </div>
 </div>
 
 <script>
@@ -797,28 +862,127 @@
     updateDocumentTitle();
   }
 
+  // ---------- Archive: every save keeps its own record ----------
+  const ARCHIVE_KEY = 'jha-archive';
+  let currentRecordId = null;
+
+  function loadArchive(){
+    try{
+      const raw = localStorage.getItem(ARCHIVE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){ return []; }
+  }
+  function persistArchive(list){
+    localStorage.setItem(ARCHIVE_KEY, JSON.stringify(list));
+  }
+  function generateRecordId(){
+    return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+  }
+
+  // Migrate an old single-slot draft (from a previous version of this app)
+  // into the archive the first time this runs, so nothing gets lost.
+  (function migrateOldDraft(){
+    const old = localStorage.getItem('jha-draft');
+    if(!old) return;
+    const archive = loadArchive();
+    let parsed;
+    try{ parsed = JSON.parse(old); }catch(e){ localStorage.removeItem('jha-draft'); return; }
+    archive.unshift({
+      id: generateRecordId(),
+      jhaNo: parsed.jhaNo || '',
+      task: parsed.task || '',
+      location: parsed.location || '',
+      savedAt: new Date().toISOString(),
+      data: parsed
+    });
+    persistArchive(archive);
+    localStorage.removeItem('jha-draft');
+  })();
+
   document.getElementById('saveBtn').addEventListener('click', () => {
     try{
-      localStorage.setItem('jha-draft', JSON.stringify(collectState()));
+      const data = collectState();
+      const archive = loadArchive();
+      const record = {
+        id: currentRecordId || generateRecordId(),
+        jhaNo: data.jhaNo,
+        task: data.task,
+        location: data.location,
+        savedAt: new Date().toISOString(),
+        data
+      };
+      const idx = archive.findIndex(r => r.id === record.id);
+      if(idx >= 0){ archive[idx] = record; } else { archive.unshift(record); }
+      persistArchive(archive);
+      currentRecordId = record.id;
       flashButton('saveBtn', 'Saved ✓');
     }catch(e){
-      alert('Could not save draft in this browser: ' + e.message);
+      alert('Could not save this JHA in this browser: ' + e.message);
     }
   });
 
-  document.getElementById('loadBtn').addEventListener('click', () => {
-    const raw = localStorage.getItem('jha-draft');
-    if(!raw){ alert('No saved draft found in this browser.'); return; }
+  function formatSavedAt(iso){
     try{
-      applyState(JSON.parse(raw));
-      flashButton('loadBtn', 'Loaded ✓');
-    }catch(e){
-      alert('Could not read saved draft: ' + e.message);
+      return new Date(iso).toLocaleString(undefined, {dateStyle:'medium', timeStyle:'short'});
+    }catch(e){ return iso; }
+  }
+
+  function renderArchiveList(){
+    const listEl = document.getElementById('archiveList');
+    const archive = loadArchive().slice().sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
+    if(!archive.length){
+      listEl.innerHTML = '<div class="archive-empty">No saved JHAs yet in this browser. Use "Save JHA" to add one.</div>';
+      return;
     }
+    listEl.innerHTML = '';
+    archive.forEach(record => {
+      const row = document.createElement('div');
+      row.className = 'archive-item';
+      const taskLabel = record.task || '(Untitled task)';
+      const metaBits = [];
+      if(record.jhaNo) metaBits.push(record.jhaNo);
+      if(record.location) metaBits.push(record.location);
+      metaBits.push('Saved ' + formatSavedAt(record.savedAt));
+      row.innerHTML = `
+        <div class="archive-item-info">
+          <div class="archive-item-task">${escapeHtml(taskLabel)}</div>
+          <div class="archive-item-meta">${escapeHtml(metaBits.join(' · '))}</div>
+        </div>
+        <div class="archive-item-actions">
+          <button type="button" class="archive-open-btn">Open</button>
+          <button type="button" class="archive-delete-btn">Delete</button>
+        </div>
+      `;
+      row.querySelector('.archive-open-btn').addEventListener('click', () => {
+        applyState(record.data);
+        currentRecordId = record.id;
+        document.getElementById('archiveOverlay').classList.remove('open');
+      });
+      row.querySelector('.archive-delete-btn').addEventListener('click', () => {
+        if(!confirm(`Delete the saved JHA "${taskLabel}"? This can't be undone.`)) return;
+        const filtered = loadArchive().filter(r => r.id !== record.id);
+        persistArchive(filtered);
+        if(currentRecordId === record.id) currentRecordId = null;
+        renderArchiveList();
+      });
+      listEl.appendChild(row);
+    });
+  }
+
+  document.getElementById('loadBtn').addEventListener('click', () => {
+    renderArchiveList();
+    document.getElementById('archiveOverlay').classList.add('open');
+  });
+  document.getElementById('archiveClose').addEventListener('click', () => {
+    document.getElementById('archiveOverlay').classList.remove('open');
+  });
+  document.getElementById('archiveOverlay').addEventListener('click', (e) => {
+    if(e.target.id === 'archiveOverlay') document.getElementById('archiveOverlay').classList.remove('open');
   });
 
   document.getElementById('newBtn').addEventListener('click', () => {
     if(!confirm('Start a new blank JHA? Unsaved changes will be lost.')) return;
+    currentRecordId = null;
     applyState({});
     addStep(); addStep(); addStep();
     addSig(); addSig(); addSig();
@@ -831,14 +995,10 @@
     setTimeout(() => btn.textContent = original, 1200);
   }
 
-  // initial state: try to restore last draft, otherwise start with blank rows
-  const saved = localStorage.getItem('jha-draft');
-  if(saved){
-    try{ applyState(JSON.parse(saved)); }catch(e){ addStep(); addStep(); addStep(); addSig(); addSig(); addSig(); }
-  } else {
-    addStep(); addStep(); addStep();
-    addSig(); addSig(); addSig();
-  }
+  // Start with a blank form — past JHAs are reachable via "Open Saved JHAs"
+  // rather than auto-restoring the last one, so you always begin fresh.
+  addStep(); addStep(); addStep();
+  addSig(); addSig(); addSig();
 
   // default date to today if empty
   if(!document.getElementById('jhaDate').value){

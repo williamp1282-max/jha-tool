@@ -664,7 +664,7 @@
     <button class="add-row-btn" id="addSigBtn" type="button">+ Add Team Member Signature</button>
   </div>
 
-  <div class="footer-note">Generated with the standalone Job Hazard Analysis tool — data is stored only in this browser (nothing is uploaded).</div>
+  <div class="footer-note">Generated with the standalone Job Hazard Analysis tool — saved JHAs are shared with your team via a private, access-code-protected store.</div>
 </div>
 
 <div class="toolbar no-print">
@@ -960,47 +960,53 @@
     updateDocumentTitle();
   }
 
-  // ---------- Archive: every save keeps its own record ----------
-  const ARCHIVE_KEY = 'jha-archive';
+  // ---------- Archive: shared across the whole team via /api/archive ----------
+  // (backed by Vercel Blob storage, gated by the same access code as the AI check)
   let currentRecordId = null;
+  let archiveCache = [];
 
-  function loadArchive(){
-    try{
-      const raw = localStorage.getItem(ARCHIVE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    }catch(e){ return []; }
-  }
-  function persistArchive(list){
-    localStorage.setItem(ARCHIVE_KEY, JSON.stringify(list));
-  }
   function generateRecordId(){
     return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
   }
 
-  // Migrate an old single-slot draft (from a previous version of this app)
-  // into the archive the first time this runs, so nothing gets lost.
-  (function migrateOldDraft(){
-    const old = localStorage.getItem('jha-draft');
-    if(!old) return;
-    const archive = loadArchive();
-    let parsed;
-    try{ parsed = JSON.parse(old); }catch(e){ localStorage.removeItem('jha-draft'); return; }
-    archive.unshift({
-      id: generateRecordId(),
-      jhaNo: parsed.jhaNo || '',
-      task: parsed.task || '',
-      location: parsed.location || '',
-      savedAt: new Date().toISOString(),
-      data: parsed
+  async function fetchSharedArchive(){
+    const accessCode = getAccessCode();
+    if(!accessCode) throw new Error('Access code required.');
+    const res = await fetch('/api/archive', {
+      method: 'GET',
+      headers: {'x-access-code': accessCode}
     });
-    persistArchive(archive);
-    localStorage.removeItem('jha-draft');
-  })();
+    const result = await res.json().catch(() => ({}));
+    if(res.status === 401){
+      localStorage.removeItem('jha-access-code');
+      throw new Error((result.error || 'Incorrect access code.') + ' Try again.');
+    }
+    if(!res.ok) throw new Error(result.error || 'Failed to load the shared archive.');
+    return Array.isArray(result.archive) ? result.archive : [];
+  }
 
-  document.getElementById('saveBtn').addEventListener('click', () => {
+  async function saveSharedArchive(list){
+    const accessCode = getAccessCode();
+    if(!accessCode) throw new Error('Access code required.');
+    const res = await fetch('/api/archive', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'x-access-code': accessCode},
+      body: JSON.stringify({archive: list})
+    });
+    const result = await res.json().catch(() => ({}));
+    if(res.status === 401){
+      localStorage.removeItem('jha-access-code');
+      throw new Error((result.error || 'Incorrect access code.') + ' Try again.');
+    }
+    if(!res.ok) throw new Error(result.error || 'Failed to save to the shared archive.');
+  }
+
+  document.getElementById('saveBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
     try{
       const data = collectState();
-      const archive = loadArchive();
+      const archive = await fetchSharedArchive();
       const record = {
         id: currentRecordId || generateRecordId(),
         jhaNo: data.jhaNo,
@@ -1011,11 +1017,14 @@
       };
       const idx = archive.findIndex(r => r.id === record.id);
       if(idx >= 0){ archive[idx] = record; } else { archive.unshift(record); }
-      persistArchive(archive);
+      await saveSharedArchive(archive);
+      archiveCache = archive;
       currentRecordId = record.id;
       flashButton('saveBtn', 'Saved ✓');
     }catch(e){
-      alert('Could not save this JHA in this browser: ' + e.message);
+      alert('Could not save this JHA to the shared archive: ' + e.message);
+    }finally{
+      btn.disabled = false;
     }
   });
 
@@ -1025,11 +1034,20 @@
     }catch(e){ return iso; }
   }
 
-  function renderArchiveList(){
+  async function renderArchiveList(){
     const listEl = document.getElementById('archiveList');
-    const archive = loadArchive().slice().sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
+    listEl.innerHTML = '<div class="archive-empty">Loading the shared archive…</div>';
+    let archive;
+    try{
+      archive = await fetchSharedArchive();
+      archiveCache = archive;
+    }catch(e){
+      listEl.innerHTML = `<div class="archive-empty">${escapeHtml(e.message)}</div>`;
+      return;
+    }
+    archive = archive.slice().sort((a,b) => new Date(b.savedAt) - new Date(a.savedAt));
     if(!archive.length){
-      listEl.innerHTML = '<div class="archive-empty">No saved JHAs yet in this browser. Use "Save JHA" to add one.</div>';
+      listEl.innerHTML = '<div class="archive-empty">No saved JHAs yet. Use "Save JHA" to add one — it\'ll be visible to your whole team.</div>';
       return;
     }
     listEl.innerHTML = '';
@@ -1056,12 +1074,17 @@
         currentRecordId = record.id;
         document.getElementById('archiveOverlay').classList.remove('open');
       });
-      row.querySelector('.archive-delete-btn').addEventListener('click', () => {
-        if(!confirm(`Delete the saved JHA "${taskLabel}"? This can't be undone.`)) return;
-        const filtered = loadArchive().filter(r => r.id !== record.id);
-        persistArchive(filtered);
-        if(currentRecordId === record.id) currentRecordId = null;
-        renderArchiveList();
+      row.querySelector('.archive-delete-btn').addEventListener('click', async () => {
+        if(!confirm(`Delete the saved JHA "${taskLabel}"? This removes it for the whole team and can't be undone.`)) return;
+        try{
+          const filtered = archiveCache.filter(r => r.id !== record.id);
+          await saveSharedArchive(filtered);
+          archiveCache = filtered;
+          if(currentRecordId === record.id) currentRecordId = null;
+          renderArchiveList();
+        }catch(e){
+          alert('Could not delete: ' + e.message);
+        }
       });
       listEl.appendChild(row);
     });
@@ -1074,8 +1097,14 @@
     el.className = 'archive-io-status' + (cls ? ' ' + cls : '');
   }
 
-  document.getElementById('exportArchiveBtn').addEventListener('click', () => {
-    const archive = loadArchive();
+  document.getElementById('exportArchiveBtn').addEventListener('click', async () => {
+    let archive;
+    try{
+      archive = await fetchSharedArchive();
+    }catch(e){
+      showArchiveIoStatus('Could not load the shared archive: ' + e.message, 'error');
+      return;
+    }
     if(!archive.length){
       showArchiveIoStatus('No saved JHAs to export yet.', 'error');
       return;
@@ -1101,7 +1130,7 @@
     const file = e.target.files[0];
     if(!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       let imported;
       try{
         imported = JSON.parse(ev.target.result);
@@ -1126,27 +1155,32 @@
         return;
       }
 
-      const existing = loadArchive();
-      let added = 0, updated = 0;
-      incoming.forEach(rec => {
-        // Normalize in case someone imports a bare {data: {...}} without our
-        // usual id/jhaNo/task/location/savedAt wrapper fields.
-        const normalized = {
-          id: rec.id || generateRecordId(),
-          jhaNo: rec.jhaNo || (rec.data && rec.data.jhaNo) || '',
-          task: rec.task || (rec.data && rec.data.task) || '',
-          location: rec.location || (rec.data && rec.data.location) || '',
-          savedAt: rec.savedAt || new Date().toISOString(),
-          data: rec.data || rec
-        };
-        const idx = existing.findIndex(r => r.id === normalized.id);
-        if(idx >= 0){ existing[idx] = normalized; updated++; }
-        else { existing.push(normalized); added++; }
-      });
+      try{
+        const existing = await fetchSharedArchive();
+        let added = 0, updated = 0;
+        incoming.forEach(rec => {
+          // Normalize in case someone imports a bare {data: {...}} without our
+          // usual id/jhaNo/task/location/savedAt wrapper fields.
+          const normalized = {
+            id: rec.id || generateRecordId(),
+            jhaNo: rec.jhaNo || (rec.data && rec.data.jhaNo) || '',
+            task: rec.task || (rec.data && rec.data.task) || '',
+            location: rec.location || (rec.data && rec.data.location) || '',
+            savedAt: rec.savedAt || new Date().toISOString(),
+            data: rec.data || rec
+          };
+          const idx = existing.findIndex(r => r.id === normalized.id);
+          if(idx >= 0){ existing[idx] = normalized; updated++; }
+          else { existing.push(normalized); added++; }
+        });
 
-      persistArchive(existing);
-      renderArchiveList();
-      showArchiveIoStatus(`Imported ${added} new, updated ${updated} existing.`, 'success');
+        await saveSharedArchive(existing);
+        archiveCache = existing;
+        renderArchiveList();
+        showArchiveIoStatus(`Imported ${added} new, updated ${updated} existing — now visible to the whole team.`, 'success');
+      }catch(err){
+        showArchiveIoStatus('Import failed: ' + err.message, 'error');
+      }
       e.target.value = '';
     };
     reader.readAsText(file);

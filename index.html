@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Job Hazard Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1c2430;
+    --ink-soft:#4c5566;
+    --paper:#faf9f6;
+    --panel:#ffffff;
+    --line:#d8d3c8;
+    --line-soft:#e8e4da;
+    --hazard:#e29d3d;
+    --hazard-dark:#b97e28;
+    --danger:#b6412f;
+    --danger-bg:#f7e2dd;
+    --medium-bg:#faedd6;
+    --medium-fg:#8a5a12;
+    --low-bg:#e2ece2;
+    --low-fg:#3d6b45;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    font-size:14px;
+    line-height:1.4;
+    padding:28px 32px 80px;
+  }
+  h1,h2,h3,.label-font{
+    font-family:'Barlow Condensed',system-ui,sans-serif;
+    letter-spacing:.02em;
+  }
+  .app{max-width:1360px;margin:0 auto;}
+
+  /* ---------- Header / masthead ---------- */
+  .masthead{
+    background:var(--ink);
+    color:var(--paper);
+    border-radius:var(--radius) var(--radius) 0 0;
+    padding:22px 28px 18px;
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:20px;
+  }
+  .masthead h1{
+    font-size:34px;
+    font-weight:700;
+    margin:0;
+    text-transform:uppercase;
+    line-height:1;
+  }
+  .masthead .sub{
+    font-family:'Inter',sans-serif;
+    font-size:12px;
+    color:#c7cbd4;
+    margin-top:6px;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+  }
+  .doc-id{
+    text-align:right;
+    font-size:12px;
+    color:#c7cbd4;
+    font-family:'Inter',sans-serif;
+  }
+  .doc-id input{
+    background:transparent;
+    border:none;
+    border-bottom:1px solid #55606f;
+    color:var(--paper);
+    text-align:right;
+    font-size:13px;
+    font-family:'Inter',sans-serif;
+    padding:2px 0;
+    width:150px;
+  }
+  .hazard-bar{
+    height:9px;
+    background:repeating-linear-gradient(135deg,var(--hazard) 0 14px,var(--ink) 14px 28px);
+  }
+
+  /* ---------- Panels ---------- */
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-top:none;
+    padding:22px 28px;
+  }
+  .panel + .panel{border-top:1px solid var(--line);}
+  .panel:last-of-type{border-radius:0 0 var(--radius) var(--radius);}
+
+  .section-title{
+    font-size:13px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    color:var(--ink-soft);
+    margin:0 0 14px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .section-title::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background:var(--line-soft);
+  }
+
+  /* ---------- Meta grid (header fields) ---------- */
+  .meta-grid{
+    display:grid;
+    grid-template-columns:2fr 1fr 1fr;
+    gap:14px 20px;
+  }
+  .field{display:flex;flex-direction:column;gap:4px;}
+  .field.span-2{grid-column:span 2;}
+  .field.span-3{grid-column:span 3;}
+  .field label{
+    font-size:10.5px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--ink-soft);
+  }
+  input[type=text],input[type=date],textarea,select{
+    font-family:'Inter',sans-serif;
+    font-size:13.5px;
+    color:var(--ink);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:7px 9px;
+    background:#fff;
+    width:100%;
+  }
+  textarea{resize:vertical;min-height:38px;font-family:inherit;}
+  input:focus,textarea:focus,select:focus{
+    outline:2px solid var(--hazard);
+    outline-offset:-1px;
+    border-color:var(--hazard-dark);
+  }
+
+  /* ---------- Steps table ---------- */
+  .steps-wrap{overflow-x:auto;}
+  table.steps{
+    width:100%;
+    border-collapse:collapse;
+    min-width:1180px;
+  }
+  table.steps thead th{
+    background:#f0ede4;
+    color:var(--ink-soft);
+    font-size:10.5px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    text-align:left;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    white-space:nowrap;
+  }
+  table.steps td{
+    border:1px solid var(--line);
+    padding:8px;
+    vertical-align:top;
+  }
+  table.steps td textarea, table.steps td input{border:1px solid transparent;background:transparent;padding:4px;}
+  table.steps td textarea:hover, table.steps td input:hover{border-color:var(--line);}
+  table.steps td textarea:focus, table.steps td input:focus{background:#fff;border-color:var(--hazard-dark);}
+  .col-num{width:34px;text-align:center;font-family:'Barlow Condensed';font-weight:700;font-size:17px;color:var(--ink-soft);background:#f7f5f0;}
+  .col-step{width:150px;}
+  .col-hazard{width:170px;}
+  .col-consequence{width:150px;}
+  .col-likelihood{width:110px;}
+  .col-factors{width:150px;}
+  .col-control{width:190px;}
+  .col-photo{width:120px;text-align:center;}
+  .col-remove{width:32px;text-align:center;}
+
+  select.likelihood{font-weight:600;font-size:12px;border-radius:4px;padding:5px 6px;}
+  select.likelihood[data-level="low"]{background:var(--low-bg);color:var(--low-fg);}
+  select.likelihood[data-level="medium"]{background:var(--medium-bg);color:var(--medium-fg);}
+  select.likelihood[data-level="high"]{background:var(--danger-bg);color:var(--danger);}
+
+  .photo-cell{display:flex;flex-direction:column;align-items:center;gap:5px;}
+  .photo-thumb{
+    width:96px;height:72px;
+    object-fit:cover;
+    border-radius:4px;
+    border:1px solid var(--line);
+    cursor:pointer;
+    display:block;
+  }
+  .photo-placeholder{
+    width:96px;height:72px;
+    border:1px dashed var(--line);
+    border-radius:4px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:10px;color:#9aa0ab;
+    cursor:pointer;
+    text-align:center;
+    line-height:1.3;
+    padding:4px;
+  }
+  .photo-cell input[type=file]{display:none;}
+  .photo-actions{display:flex;gap:6px;}
+  .mini-btn{
+    font-size:10px;
+    color:var(--ink-soft);
+    background:none;
+    border:none;
+    cursor:pointer;
+    text-decoration:underline;
+    padding:0;
+  }
+
+  .row-remove-btn{
+    background:none;border:none;cursor:pointer;
+    color:#b0392c;font-size:16px;line-height:1;
+    padding:4px;
+  }
+  .row-remove-btn:hover{color:var(--danger);}
+
+  /* ---------- Buttons / toolbar ---------- */
+  .toolbar{
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    margin:18px auto;
+    max-width:1360px;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .toolbar .group{display:flex;gap:10px;flex-wrap:wrap;}
+  button.btn{
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    font-weight:600;
+    border-radius:5px;
+    padding:9px 16px;
+    cursor:pointer;
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--ink);
+    transition:background .12s ease;
+  }
+  button.btn:hover{background:#f3f1ea;}
+  button.btn.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+  button.btn.primary:hover{background:#2b3648;}
+  button.btn.accent{background:var(--hazard);border-color:var(--hazard-dark);color:#302005;}
+  button.btn.accent:hover{background:var(--hazard-dark);color:#fff;}
+  button.btn.ghost{background:transparent;color:var(--ink-soft);}
+  button.btn.danger-outline{color:var(--danger);border-color:#e0b7ae;}
+
+  .add-row-btn{
+    margin-top:10px;
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--ink-soft);
+    background:#f3f1ea;
+    border:1px dashed var(--line);
+    border-radius:5px;
+    padding:8px 14px;
+    cursor:pointer;
+  }
+  .add-row-btn:hover{background:#ece8dc;}
+
+  /* ---------- Signatures ---------- */
+  table.sigs{width:100%;border-collapse:collapse;}
+  table.sigs thead th{
+    background:#f0ede4;color:var(--ink-soft);font-size:10.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:9px 10px;border:1px solid var(--line);
+  }
+  table.sigs td{border:1px solid var(--line);padding:8px;vertical-align:middle;}
+  .sig-name-input{border:1px solid transparent;background:transparent;font-size:14px;}
+  .sig-name-input:hover{border-color:var(--line);}
+  .sig-name-input:focus{background:#fff;border-color:var(--hazard-dark);}
+  .sig-pad-wrap{position:relative;width:230px;}
+  canvas.sig-pad{
+    width:230px;height:64px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:
+      linear-gradient(#fff,#fff) padding-box,
+      repeating-linear-gradient(transparent 0 55px, var(--line-soft) 55px 56px) padding-box;
+    touch-action:none;
+    cursor:crosshair;
+    display:block;
+  }
+  .sig-clear{
+    position:absolute;top:2px;right:4px;
+    font-size:9px;color:#9aa0ab;background:none;border:none;cursor:pointer;
+  }
+  .sig-date{width:130px;}
+  .attest-text{
+    font-size:12.5px;
+    color:var(--ink-soft);
+    background:#f7f5ef;
+    border-left:3px solid var(--hazard);
+    padding:10px 14px;
+    border-radius:3px;
+    margin-bottom:16px;
+  }
+
+  .footer-note{
+    text-align:center;
+    font-size:11px;
+    color:#9aa0ab;
+    margin-top:18px;
+  }
+
+  /* ---------- Modal for enlarged photo ---------- */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(20,24,32,.75);
+    display:none;align-items:center;justify-content:center;z-index:50;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal-overlay img{max-width:85vw;max-height:85vh;border-radius:6px;box-shadow:0 10px 40px rgba(0,0,0,.4);}
+  .modal-close{
+    position:absolute;top:22px;right:30px;color:#fff;font-size:26px;
+    background:none;border:none;cursor:pointer;
+  }
+
+  /* ---------- Print ---------- */
+  @media print{
+    body{padding:0;background:#fff;font-size:11px;}
+    .toolbar,.no-print,.row-remove-btn,.add-row-btn,.photo-actions,.sig-clear{display:none !important;}
+    .app{max-width:none;}
+    .masthead{border-radius:0;}
+    .panel{border:none;padding:14px 16px;}
+    table.steps{min-width:0;}
+    table.steps td, table.sigs td{padding:5px 6px;}
+    select.likelihood{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .hazard-bar{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .masthead{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    tr{page-break-inside:avoid;}
+    @page{size:landscape;margin:12mm;}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <div class="masthead">
+    <div>
+      <h1>Job Hazard Analysis</h1>
+      <div class="sub">Task Breakdown &amp; Hazard Control Worksheet</div>
+    </div>
+    <div class="doc-id">
+      <div>JHA No. <input type="text" id="jhaNo" placeholder="e.g. JHA-014"></div>
+      <div style="margin-top:6px;">Date <input type="date" id="jhaDate"></div>
+    </div>
+  </div>
+  <div class="hazard-bar"></div>
+
+  <div class="panel">
+    <p class="section-title">Job Information</p>
+    <div class="meta-grid">
+      <div class="field span-2">
+        <label>Task / Operation</label>
+        <input type="text" id="task" placeholder="e.g. Confined space entry — Tank 4 cleaning">
+      </div>
+      <div class="field">
+        <label>Location</label>
+        <input type="text" id="location" placeholder="Building / area / unit">
+      </div>
+
+      <div class="field span-3">
+        <label>Description of Task</label>
+        <textarea id="description" placeholder="Brief description of the scope of work and conditions"></textarea>
+      </div>
+
+      <div class="field">
+        <label>JHA Prepared By</label>
+        <input type="text" id="preparedBy" placeholder="Name / title">
+      </div>
+      <div class="field">
+        <label>Supervisor</label>
+        <input type="text" id="supervisor" placeholder="Name / title">
+      </div>
+      <div class="field">
+        <label>Approved By</label>
+        <input type="text" id="approvedBy" placeholder="Name / title">
+      </div>
+
+      <div class="field span-3">
+        <label>Team Members Performing Task</label>
+        <textarea id="teamMembers" placeholder="List all crew members involved in this task"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <p class="section-title">Task Steps &amp; Hazard Analysis</p>
+    <div class="steps-wrap">
+      <table class="steps" id="stepsTable">
+        <thead>
+          <tr>
+            <th class="col-num">#</th>
+            <th class="col-step">Task Step</th>
+            <th class="col-hazard">Potential Hazard(s)</th>
+            <th class="col-consequence">Consequences</th>
+            <th class="col-likelihood">Likelihood</th>
+            <th class="col-factors">Contributing Factors</th>
+            <th class="col-control">Control Measures</th>
+            <th class="col-photo">Photo</th>
+            <th class="col-remove"></th>
+          </tr>
+        </thead>
+        <tbody id="stepsBody"></tbody>
+      </table>
+    </div>
+    <button class="add-row-btn" id="addStepBtn" type="button">+ Add Task Step</button>
+  </div>
+
+  <div class="panel">
+    <p class="section-title">Crew Acknowledgement</p>
+    <div class="attest-text">
+      By signing below, each team member confirms they have reviewed this Job Hazard Analysis, understand the task, its hazards, and the required control measures, and agree to follow them.
+    </div>
+    <table class="sigs" id="sigsTable">
+      <thead>
+        <tr>
+          <th style="width:220px;">Name</th>
+          <th style="width:250px;">Signature</th>
+          <th style="width:140px;">Date</th>
+          <th style="width:30px;"></th>
+        </tr>
+      </thead>
+      <tbody id="sigsBody"></tbody>
+    </table>
+    <button class="add-row-btn" id="addSigBtn" type="button">+ Add Team Member Signature</button>
+  </div>
+
+  <div class="footer-note">Generated with the standalone Job Hazard Analysis tool — data is stored only in this browser (nothing is uploaded).</div>
+</div>
+
+<div class="toolbar no-print">
+  <div class="group">
+    <button class="btn primary" id="printBtn">🖨 Print / Save PDF</button>
+    <button class="btn accent" id="saveBtn">💾 Save Draft</button>
+    <button class="btn" id="loadBtn">📂 Load Draft</button>
+  </div>
+  <div class="group">
+    <button class="btn ghost danger-outline" id="newBtn">＋ New JHA</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <button class="modal-close" id="modalClose">&times;</button>
+  <img id="modalImg" src="" alt="Hazard photo">
+</div>
+
+<script>
+(function(){
+  const stepsBody = document.getElementById('stepsBody');
+  const sigsBody = document.getElementById('sigsBody');
+  let stepCounter = 0;
+  let sigCounter = 0;
+
+  function likelihoodLevel(val){
+    if(val === 'Low') return 'low';
+    if(val === 'Medium') return 'medium';
+    if(val === 'High') return 'high';
+    return '';
+  }
+
+  function updateLikelihoodStyle(select){
+    select.dataset.level = likelihoodLevel(select.value);
+  }
+
+  function addStep(data){
+    data = data || {};
+    stepCounter++;
+    const tr = document.createElement('tr');
+    tr.dataset.id = 'step-' + stepCounter;
+    tr.innerHTML = `
+      <td class="col-num rownum">${stepCounter}</td>
+      <td class="col-step"><textarea rows="2" class="f-step" placeholder="Describe the step">${data.step||''}</textarea></td>
+      <td class="col-hazard"><textarea rows="2" class="f-hazard" placeholder="What could go wrong?">${data.hazard||''}</textarea></td>
+      <td class="col-consequence"><textarea rows="2" class="f-consequence" placeholder="Injury / harm that could result">${data.consequence||''}</textarea></td>
+      <td class="col-likelihood">
+        <select class="likelihood f-likelihood">
+          <option value="">—</option>
+          <option value="Low">Low</option>
+          <option value="Medium">Medium</option>
+          <option value="High">High</option>
+        </select>
+      </td>
+      <td class="col-factors"><textarea rows="2" class="f-factors" placeholder="Conditions that increase risk">${data.factors||''}</textarea></td>
+      <td class="col-control"><textarea rows="2" class="f-control" placeholder="How the hazard will be controlled">${data.control||''}</textarea></td>
+      <td class="col-photo">
+        <div class="photo-cell">
+          <input type="file" accept="image/*" class="f-photo-input">
+          <img class="photo-thumb f-photo-thumb" style="display:none;">
+          <div class="photo-placeholder f-photo-placeholder">Click to add photo</div>
+          <div class="photo-actions" style="display:none;">
+            <button type="button" class="mini-btn f-photo-replace">Replace</button>
+            <button type="button" class="mini-btn f-photo-remove">Remove</button>
+          </div>
+        </div>
+      </td>
+      <td class="col-remove"><button type="button" class="row-remove-btn f-remove" title="Remove step">✕</button></td>
+    `;
+    stepsBody.appendChild(tr);
+
+    const likeSel = tr.querySelector('.f-likelihood');
+    likeSel.value = data.likelihood || '';
+    updateLikelihoodStyle(likeSel);
+    likeSel.addEventListener('change', () => updateLikelihoodStyle(likeSel));
+
+    const fileInput = tr.querySelector('.f-photo-input');
+    const thumb = tr.querySelector('.f-photo-thumb');
+    const placeholder = tr.querySelector('.f-photo-placeholder');
+    const actions = tr.querySelector('.photo-actions');
+
+    function setPhoto(src){
+      if(src){
+        thumb.src = src;
+        thumb.style.display = 'block';
+        placeholder.style.display = 'none';
+        actions.style.display = 'flex';
+      } else {
+        thumb.src = '';
+        thumb.style.display = 'none';
+        placeholder.style.display = 'flex';
+        actions.style.display = 'none';
+      }
+    }
+    if(data.photo) setPhoto(data.photo);
+
+    placeholder.addEventListener('click', () => fileInput.click());
+    tr.querySelector('.f-photo-replace').addEventListener('click', () => fileInput.click());
+    tr.querySelector('.f-photo-remove').addEventListener('click', () => { setPhoto(null); fileInput.value=''; });
+    thumb.addEventListener('click', () => openModal(thumb.src));
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => setPhoto(ev.target.result);
+      reader.readAsDataURL(file);
+    });
+
+    tr.querySelector('.f-remove').addEventListener('click', () => {
+      tr.remove();
+      renumberSteps();
+    });
+
+    renumberSteps();
+  }
+
+  function renumberSteps(){
+    const rows = stepsBody.querySelectorAll('tr');
+    rows.forEach((row, i) => { row.querySelector('.rownum').textContent = i + 1; });
+  }
+
+  function addSig(data){
+    data = data || {};
+    sigCounter++;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="text" class="sig-name-input s-name" placeholder="Team member name" value="${data.name ? escapeHtml(data.name) : ''}"></td>
+      <td>
+        <div class="sig-pad-wrap">
+          <canvas class="sig-pad" width="460" height="128"></canvas>
+          <button type="button" class="sig-clear no-print">clear</button>
+        </div>
+      </td>
+      <td><input type="date" class="sig-date s-date" value="${data.date||''}"></td>
+      <td><button type="button" class="row-remove-btn s-remove" title="Remove signer">✕</button></td>
+    `;
+    sigsBody.appendChild(tr);
+
+    const canvas = tr.querySelector('.sig-pad');
+    const ctx = canvas.getContext('2d');
+    ctx.strokeStyle = '#1c2430';
+    ctx.lineWidth = 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    let drawing = false, lastX=0, lastY=0;
+
+    function pos(e){
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+      const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+      return [cx*scaleX, cy*scaleY];
+    }
+    function start(e){ drawing=true; [lastX,lastY]=pos(e); e.preventDefault(); }
+    function move(e){
+      if(!drawing) return;
+      const [x,y] = pos(e);
+      ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(x,y); ctx.stroke();
+      [lastX,lastY]=[x,y];
+      e.preventDefault();
+    }
+    function end(){ drawing=false; }
+
+    canvas.addEventListener('mousedown', start);
+    canvas.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    canvas.addEventListener('touchstart', start, {passive:false});
+    canvas.addEventListener('touchmove', move, {passive:false});
+    canvas.addEventListener('touchend', end);
+
+    if(data.sig){
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      img.src = data.sig;
+    }
+
+    tr.querySelector('.sig-clear').addEventListener('click', () => ctx.clearRect(0,0,canvas.width,canvas.height));
+    tr.querySelector('.s-remove').addEventListener('click', () => tr.remove());
+  }
+
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+  }
+
+  function openModal(src){
+    if(!src) return;
+    document.getElementById('modalImg').src = src;
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+  document.getElementById('modalClose').addEventListener('click', () => {
+    document.getElementById('modalOverlay').classList.remove('open');
+  });
+  document.getElementById('modalOverlay').addEventListener('click', (e) => {
+    if(e.target.id === 'modalOverlay') document.getElementById('modalOverlay').classList.remove('open');
+  });
+
+  document.getElementById('addStepBtn').addEventListener('click', () => addStep());
+  document.getElementById('addSigBtn').addEventListener('click', () => addSig());
+
+  document.getElementById('printBtn').addEventListener('click', () => window.print());
+
+  function collectState(){
+    const steps = Array.from(stepsBody.querySelectorAll('tr')).map(tr => ({
+      step: tr.querySelector('.f-step').value,
+      hazard: tr.querySelector('.f-hazard').value,
+      consequence: tr.querySelector('.f-consequence').value,
+      likelihood: tr.querySelector('.f-likelihood').value,
+      factors: tr.querySelector('.f-factors').value,
+      control: tr.querySelector('.f-control').value,
+      photo: (tr.querySelector('.f-photo-thumb').style.display !== 'none') ? tr.querySelector('.f-photo-thumb').src : null
+    }));
+    const sigs = Array.from(sigsBody.querySelectorAll('tr')).map(tr => ({
+      name: tr.querySelector('.s-name').value,
+      date: tr.querySelector('.s-date').value,
+      sig: tr.querySelector('.sig-pad').toDataURL()
+    }));
+    return {
+      jhaNo: document.getElementById('jhaNo').value,
+      jhaDate: document.getElementById('jhaDate').value,
+      task: document.getElementById('task').value,
+      description: document.getElementById('description').value,
+      location: document.getElementById('location').value,
+      preparedBy: document.getElementById('preparedBy').value,
+      supervisor: document.getElementById('supervisor').value,
+      approvedBy: document.getElementById('approvedBy').value,
+      teamMembers: document.getElementById('teamMembers').value,
+      steps, sigs
+    };
+  }
+
+  function applyState(state){
+    document.getElementById('jhaNo').value = state.jhaNo || '';
+    document.getElementById('jhaDate').value = state.jhaDate || '';
+    document.getElementById('task').value = state.task || '';
+    document.getElementById('description').value = state.description || '';
+    document.getElementById('location').value = state.location || '';
+    document.getElementById('preparedBy').value = state.preparedBy || '';
+    document.getElementById('supervisor').value = state.supervisor || '';
+    document.getElementById('approvedBy').value = state.approvedBy || '';
+    document.getElementById('teamMembers').value = state.teamMembers || '';
+
+    stepsBody.innerHTML = ''; stepCounter = 0;
+    (state.steps && state.steps.length ? state.steps : []).forEach(addStep);
+
+    sigsBody.innerHTML = ''; sigCounter = 0;
+    (state.sigs && state.sigs.length ? state.sigs : []).forEach(addSig);
+  }
+
+  document.getElementById('saveBtn').addEventListener('click', () => {
+    try{
+      localStorage.setItem('jha-draft', JSON.stringify(collectState()));
+      flashButton('saveBtn', 'Saved ✓');
+    }catch(e){
+      alert('Could not save draft in this browser: ' + e.message);
+    }
+  });
+
+  document.getElementById('loadBtn').addEventListener('click', () => {
+    const raw = localStorage.getItem('jha-draft');
+    if(!raw){ alert('No saved draft found in this browser.'); return; }
+    try{
+      applyState(JSON.parse(raw));
+      flashButton('loadBtn', 'Loaded ✓');
+    }catch(e){
+      alert('Could not read saved draft: ' + e.message);
+    }
+  });
+
+  document.getElementById('newBtn').addEventListener('click', () => {
+    if(!confirm('Start a new blank JHA? Unsaved changes will be lost.')) return;
+    applyState({});
+    addStep(); addStep(); addStep();
+    addSig(); addSig(); addSig();
+  });
+
+  function flashButton(id, text){
+    const btn = document.getElementById(id);
+    const original = btn.textContent;
+    btn.textContent = text;
+    setTimeout(() => btn.textContent = original, 1200);
+  }
+
+  // initial state: try to restore last draft, otherwise start with blank rows
+  const saved = localStorage.getItem('jha-draft');
+  if(saved){
+    try{ applyState(JSON.parse(saved)); }catch(e){ addStep(); addStep(); addStep(); addSig(); addSig(); addSig(); }
+  } else {
+    addStep(); addStep(); addStep();
+    addSig(); addSig(); addSig();
+  }
+
+  // default date to today if empty
+  if(!document.getElementById('jhaDate').value){
+    document.getElementById('jhaDate').value = new Date().toISOString().slice(0,10);
+  }
+})();
+</script>
+
+</body>
+</html>

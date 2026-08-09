@@ -21,33 +21,23 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Vercel connects Blob stores using OIDC by default now (BLOB_STORE_ID +
-  // a short-lived VERCEL_OIDC_TOKEN that Vercel rotates automatically),
-  // rather than the older long-lived BLOB_READ_WRITE_TOKEN. Support both,
-  // since either can be present depending on how the store was connected.
-  const staticToken = process.env.BLOB_READ_WRITE_TOKEN;
-  const oidcToken = process.env.VERCEL_OIDC_TOKEN;
-  const storeId = process.env.BLOB_STORE_ID;
-  if (!staticToken && !(oidcToken && storeId)) {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
     res.status(500).json({
-      error: 'No Blob store credentials found on this deployment. In Vercel: Storage → connect a Blob store to this project, then redeploy.'
+      error: 'BLOB_READ_WRITE_TOKEN is not set on this deployment. Copy it from your Blob store\'s Quickstart tab in Vercel, add it under Project → Settings → Environment Variables, then redeploy.'
     });
     return;
   }
-  // When BLOB_READ_WRITE_TOKEN isn't set, omit `token` entirely so the SDK
-  // falls back to its default OIDC-based authentication automatically.
-  const sdkTokenOption = staticToken ? { token: staticToken } : {};
-  const authHeaderToken = staticToken || oidcToken;
 
   if (req.method === 'GET') {
     try {
-      const { blobs } = await list({ prefix: ARCHIVE_PATHNAME, ...sdkTokenOption });
+      const { blobs } = await list({ prefix: ARCHIVE_PATHNAME, token });
       const match = blobs.find(b => b.pathname === ARCHIVE_PATHNAME);
       if (!match) {
         res.status(200).json({ archive: [] });
         return;
       }
-      const fileRes = await fetch(match.url, { headers: { Authorization: `Bearer ${authHeaderToken}` } });
+      const fileRes = await fetch(match.url, { headers: { Authorization: `Bearer ${token}` } });
       if (!fileRes.ok) {
         res.status(200).json({ archive: [] });
         return;
@@ -78,7 +68,7 @@ export default async function handler(req, res) {
         access: 'private',
         contentType: 'application/json',
         allowOverwrite: true,
-        ...sdkTokenOption
+        token
       });
       res.status(200).json({ ok: true });
     } catch (e) {

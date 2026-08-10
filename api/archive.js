@@ -1,9 +1,18 @@
-// Vercel serverless function backed by Vercel Blob storage — this is what
-// makes the JHA archive shared across every device/browser on the team,
-// instead of living only in one browser's localStorage.
-import { put, list } from '@vercel/blob';
+// Vercel serverless function backed by Vercel Blob storage. Each saved JHA
+// is stored as its own pair of files (a small ".meta.json" for the list
+// view, plus the full record) rather than one big shared array — so two
+// people saving different JHAs at the same time never clobber each other,
+// and listing the archive doesn't require downloading every photo/signature
+// embedded in every record.
+import { put, list, del } from '@vercel/blob';
 
-const ARCHIVE_PATHNAME = 'jha-shared-archive.json';
+const PREFIX = 'jha-records/';
+const metaPath = (id) => `${PREFIX}${id}.meta.json`;
+const dataPath = (id) => `${PREFIX}${id}.json`;
+
+function newId(){
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
 
 export default async function handler(req, res) {
   // Same shared access code used by the AI hazard check — keeps the team
@@ -29,27 +38,51 @@ export default async function handler(req, res) {
     return;
   }
 
+  const id = req.query && req.query.id;
+
+  // ---- GET: list all records (metadata only), or fetch one full record ----
   if (req.method === 'GET') {
+    if (id) {
+      try {
+        const { blobs } = await list({ prefix: dataPath(id), token });
+        const match = blobs.find(b => b.pathname === dataPath(id));
+        if (!match) {
+          res.status(404).json({ error: 'That saved JHA was not found — it may have been deleted by someone else.' });
+          return;
+        }
+        const fileRes = await fetch(match.url, { headers: { Authorization: `Bearer ${token}` } });
+        if (!fileRes.ok) {
+          res.status(502).json({ error: 'Failed to fetch the saved record.' });
+          return;
+        }
+        const record = await fileRes.json();
+        res.status(200).json({ record });
+      } catch (e) {
+        res.status(500).json({ error: 'Failed to load that record: ' + e.message });
+      }
+      return;
+    }
+
     try {
-      const { blobs } = await list({ prefix: ARCHIVE_PATHNAME, token });
-      const match = blobs.find(b => b.pathname === ARCHIVE_PATHNAME);
-      if (!match) {
-        res.status(200).json({ archive: [] });
-        return;
-      }
-      const fileRes = await fetch(match.url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!fileRes.ok) {
-        res.status(200).json({ archive: [] });
-        return;
-      }
-      const data = await fileRes.json();
-      res.status(200).json({ archive: Array.isArray(data) ? data : [] });
+      const { blobs } = await list({ prefix: PREFIX, token });
+      const metaBlobs = blobs.filter(b => b.pathname.endsWith('.meta.json'));
+      const metas = await Promise.all(metaBlobs.map(async (b) => {
+        try {
+          const r = await fetch(b.url, { headers: { Authorization: `Bearer ${token}` } });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (e) {
+          return null;
+        }
+      }));
+      res.status(200).json({ records: metas.filter(Boolean) });
     } catch (e) {
-      res.status(500).json({ error: 'Failed to load the shared archive: ' + e.message });
+      res.status(500).json({ error: 'Failed to list the shared archive: ' + e.message });
     }
     return;
   }
 
+  // ---- POST: create or update a single record ----
   if (req.method === 'POST') {
     let body;
     try {
@@ -58,21 +91,47 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid request body.' });
       return;
     }
-    const archive = Array.isArray(body.archive) ? body.archive : null;
-    if (!archive) {
-      res.status(400).json({ error: 'Missing archive array in request body.' });
+    const record = body.record;
+    if (!record || typeof record !== 'object') {
+      res.status(400).json({ error: 'Missing record in request body.' });
+      return;
+    }
+
+    const recId = record.id || newId();
+    const meta = {
+      id: recId,
+      jhaNo: record.jhaNo || '',
+      task: record.task || '',
+      location: record.location || '',
+      savedAt: record.savedAt || new Date().toISOString()
+    };
+    const full = { ...record, id: recId, savedAt: meta.savedAt };
+
+    try {
+      await put(dataPath(recId), JSON.stringify(full), {
+        access: 'private', contentType: 'application/json', allowOverwrite: true, token
+      });
+      await put(metaPath(recId), JSON.stringify(meta), {
+        access: 'private', contentType: 'application/json', allowOverwrite: true, token
+      });
+      res.status(200).json({ id: recId });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to save that record: ' + e.message });
+    }
+    return;
+  }
+
+  // ---- DELETE: remove one record ----
+  if (req.method === 'DELETE') {
+    if (!id) {
+      res.status(400).json({ error: 'Missing id.' });
       return;
     }
     try {
-      await put(ARCHIVE_PATHNAME, JSON.stringify(archive), {
-        access: 'private',
-        contentType: 'application/json',
-        allowOverwrite: true,
-        token
-      });
+      await del([dataPath(id), metaPath(id)], { token });
       res.status(200).json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: 'Failed to save the shared archive: ' + e.message });
+      res.status(500).json({ error: 'Failed to delete that record: ' + e.message });
     }
     return;
   }

@@ -175,7 +175,7 @@
     padding:8px;
     vertical-align:top;
   }
-  table.steps td textarea, table.steps td input{border:1px solid transparent;background:transparent;padding:4px;}
+  table.steps td textarea, table.steps td input{border:1px solid var(--table-line);background:transparent;padding:4px;}
   table.steps td textarea:hover, table.steps td input:hover{border-color:var(--line);}
   table.steps td textarea:focus, table.steps td input:focus{background:#fff;border-color:var(--hazard-dark);}
   .col-num{width:34px;text-align:center;font-family:'Barlow Condensed';font-weight:700;font-size:17px;color:var(--ink-soft);background:#f7f5f0;}
@@ -188,7 +188,7 @@
   .col-photo{width:120px;text-align:center;}
   .col-remove{width:32px;text-align:center;}
 
-  select.likelihood{font-weight:700;font-size:11.5px;letter-spacing:.02em;border-radius:4px;padding:6px 8px;border:none;}
+  select.likelihood{font-weight:700;font-size:11.5px;letter-spacing:.02em;border-radius:4px;padding:6px 8px;border:1px solid var(--table-line);}
   select.likelihood[data-level="low"]{background:var(--low-bg);color:var(--low-fg);}
   select.likelihood[data-level="medium"]{background:var(--medium-bg);color:var(--medium-fg);}
   select.likelihood[data-level="high"]{background:var(--danger-bg);color:#ffffff;}
@@ -335,7 +335,7 @@
     text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:9px 10px;border:1px solid var(--table-line);
   }
   table.sigs td{border:1px solid var(--table-line);padding:8px;vertical-align:middle;}
-  .sig-name-input{border:1px solid transparent;background:transparent;font-size:14px;}
+  .sig-name-input{border:1px solid var(--table-line);background:transparent;font-size:14px;}
   .sig-name-input:hover{border-color:var(--line);}
   .sig-name-input:focus{background:#fff;border-color:var(--hazard-dark);}
   .sig-pad-wrap{position:relative;width:230px;}
@@ -963,43 +963,60 @@
 
   // ---------- Archive: shared across the whole team via /api/archive ----------
   // (backed by Vercel Blob storage, gated by the same access code as the AI check)
+  // Each save/delete touches only the one record involved — not the whole
+  // archive — so two people working on different JHAs at once don't clobber
+  // each other's changes.
   let currentRecordId = null;
-  let archiveCache = [];
 
   function generateRecordId(){
     return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
   }
 
-  async function fetchSharedArchive(){
+  function accessHeaders(extra){
     const accessCode = getAccessCode();
     if(!accessCode) throw new Error('Access code required.');
-    const res = await fetch('/api/archive', {
-      method: 'GET',
-      headers: {'x-access-code': accessCode}
-    });
-    const result = await res.json().catch(() => ({}));
-    if(res.status === 401){
-      localStorage.removeItem('jha-access-code');
-      throw new Error((result.error || 'Incorrect access code.') + ' Try again.');
-    }
-    if(!res.ok) throw new Error(result.error || 'Failed to load the shared archive.');
-    return Array.isArray(result.archive) ? result.archive : [];
+    return Object.assign({'x-access-code': accessCode}, extra || {});
   }
 
-  async function saveSharedArchive(list){
-    const accessCode = getAccessCode();
-    if(!accessCode) throw new Error('Access code required.');
-    const res = await fetch('/api/archive', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'x-access-code': accessCode},
-      body: JSON.stringify({archive: list})
-    });
+  async function handleAuthAwareResponse(res){
     const result = await res.json().catch(() => ({}));
     if(res.status === 401){
       localStorage.removeItem('jha-access-code');
       throw new Error((result.error || 'Incorrect access code.') + ' Try again.');
     }
-    if(!res.ok) throw new Error(result.error || 'Failed to save to the shared archive.');
+    if(!res.ok) throw new Error(result.error || 'Something went wrong talking to the shared archive.');
+    return result;
+  }
+
+  // List every saved JHA's metadata (task/jhaNo/location/savedAt) without
+  // downloading each record's full contents (photos, signatures, etc.).
+  async function fetchArchiveList(){
+    const res = await fetch('/api/archive', {method: 'GET', headers: accessHeaders()});
+    const result = await handleAuthAwareResponse(res);
+    return Array.isArray(result.records) ? result.records : [];
+  }
+
+  // Fetch one record's full contents (only called when actually opening it).
+  async function fetchRecord(id){
+    const res = await fetch('/api/archive?id=' + encodeURIComponent(id), {method: 'GET', headers: accessHeaders()});
+    const result = await handleAuthAwareResponse(res);
+    return result.record;
+  }
+
+  // Create or update exactly one record.
+  async function saveRecord(record){
+    const res = await fetch('/api/archive', {
+      method: 'POST',
+      headers: accessHeaders({'Content-Type': 'application/json'}),
+      body: JSON.stringify({record})
+    });
+    const result = await handleAuthAwareResponse(res);
+    return result.id;
+  }
+
+  async function deleteRecord(id){
+    const res = await fetch('/api/archive?id=' + encodeURIComponent(id), {method: 'DELETE', headers: accessHeaders()});
+    await handleAuthAwareResponse(res);
   }
 
   document.getElementById('saveBtn').addEventListener('click', async () => {
@@ -1007,20 +1024,16 @@
     btn.disabled = true;
     try{
       const data = collectState();
-      const archive = await fetchSharedArchive();
       const record = {
-        id: currentRecordId || generateRecordId(),
+        id: currentRecordId || undefined,
         jhaNo: data.jhaNo,
         task: data.task,
         location: data.location,
         savedAt: new Date().toISOString(),
         data
       };
-      const idx = archive.findIndex(r => r.id === record.id);
-      if(idx >= 0){ archive[idx] = record; } else { archive.unshift(record); }
-      await saveSharedArchive(archive);
-      archiveCache = archive;
-      currentRecordId = record.id;
+      const savedId = await saveRecord(record);
+      currentRecordId = savedId;
       flashButton('saveBtn', 'Saved ✓');
     }catch(e){
       alert('Could not save this JHA to the shared archive: ' + e.message);
@@ -1040,8 +1053,7 @@
     listEl.innerHTML = '<div class="archive-empty">Loading the shared archive…</div>';
     let archive;
     try{
-      archive = await fetchSharedArchive();
-      archiveCache = archive;
+      archive = await fetchArchiveList();
     }catch(e){
       listEl.innerHTML = `<div class="archive-empty">${escapeHtml(e.message)}</div>`;
       return;
@@ -1052,14 +1064,14 @@
       return;
     }
     listEl.innerHTML = '';
-    archive.forEach(record => {
+    archive.forEach(meta => {
       const row = document.createElement('div');
       row.className = 'archive-item';
-      const taskLabel = record.task || '(Untitled task)';
+      const taskLabel = meta.task || '(Untitled task)';
       const metaBits = [];
-      if(record.jhaNo) metaBits.push(record.jhaNo);
-      if(record.location) metaBits.push(record.location);
-      metaBits.push('Saved ' + formatSavedAt(record.savedAt));
+      if(meta.jhaNo) metaBits.push(meta.jhaNo);
+      if(meta.location) metaBits.push(meta.location);
+      metaBits.push('Saved ' + formatSavedAt(meta.savedAt));
       row.innerHTML = `
         <div class="archive-item-info">
           <div class="archive-item-task">${escapeHtml(taskLabel)}</div>
@@ -1070,18 +1082,26 @@
           <button type="button" class="archive-delete-btn">Delete</button>
         </div>
       `;
-      row.querySelector('.archive-open-btn').addEventListener('click', () => {
-        applyState(record.data);
-        currentRecordId = record.id;
-        document.getElementById('archiveOverlay').classList.remove('open');
+      const openBtn = row.querySelector('.archive-open-btn');
+      openBtn.addEventListener('click', async () => {
+        openBtn.disabled = true;
+        openBtn.textContent = 'Opening…';
+        try{
+          const record = await fetchRecord(meta.id);
+          applyState(record.data);
+          currentRecordId = meta.id;
+          document.getElementById('archiveOverlay').classList.remove('open');
+        }catch(e){
+          alert('Could not open that JHA: ' + e.message);
+          openBtn.disabled = false;
+          openBtn.textContent = 'Open';
+        }
       });
       row.querySelector('.archive-delete-btn').addEventListener('click', async () => {
         if(!confirm(`Delete the saved JHA "${taskLabel}"? This removes it for the whole team and can't be undone.`)) return;
         try{
-          const filtered = archiveCache.filter(r => r.id !== record.id);
-          await saveSharedArchive(filtered);
-          archiveCache = filtered;
-          if(currentRecordId === record.id) currentRecordId = null;
+          await deleteRecord(meta.id);
+          if(currentRecordId === meta.id) currentRecordId = null;
           renderArchiveList();
         }catch(e){
           alert('Could not delete: ' + e.message);
@@ -1099,18 +1119,26 @@
   }
 
   document.getElementById('exportArchiveBtn').addEventListener('click', async () => {
-    let archive;
+    let metas;
     try{
-      archive = await fetchSharedArchive();
+      metas = await fetchArchiveList();
     }catch(e){
       showArchiveIoStatus('Could not load the shared archive: ' + e.message, 'error');
       return;
     }
-    if(!archive.length){
+    if(!metas.length){
       showArchiveIoStatus('No saved JHAs to export yet.', 'error');
       return;
     }
-    const blob = new Blob([JSON.stringify(archive, null, 2)], {type: 'application/json'});
+    showArchiveIoStatus(`Exporting ${metas.length} JHA${metas.length === 1 ? '' : 's'}…`, '');
+    let fullRecords;
+    try{
+      fullRecords = await Promise.all(metas.map(m => fetchRecord(m.id)));
+    }catch(e){
+      showArchiveIoStatus('Export failed while loading records: ' + e.message, 'error');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(fullRecords, null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const stamp = new Date().toISOString().slice(0,10);
@@ -1120,7 +1148,7 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    showArchiveIoStatus(`Exported ${archive.length} saved JHA${archive.length === 1 ? '' : 's'}.`, 'success');
+    showArchiveIoStatus(`Exported ${fullRecords.length} saved JHA${fullRecords.length === 1 ? '' : 's'}.`, 'success');
   });
 
   document.getElementById('importArchiveBtn').addEventListener('click', () => {
@@ -1156,10 +1184,12 @@
         return;
       }
 
+      showArchiveIoStatus(`Importing ${incoming.length} JHA${incoming.length === 1 ? '' : 's'}…`, '');
       try{
-        const existing = await fetchSharedArchive();
+        const existingMetas = await fetchArchiveList();
+        const existingIds = new Set(existingMetas.map(m => m.id));
         let added = 0, updated = 0;
-        incoming.forEach(rec => {
+        for(const rec of incoming){
           // Normalize in case someone imports a bare {data: {...}} without our
           // usual id/jhaNo/task/location/savedAt wrapper fields.
           const normalized = {
@@ -1170,13 +1200,9 @@
             savedAt: rec.savedAt || new Date().toISOString(),
             data: rec.data || rec
           };
-          const idx = existing.findIndex(r => r.id === normalized.id);
-          if(idx >= 0){ existing[idx] = normalized; updated++; }
-          else { existing.push(normalized); added++; }
-        });
-
-        await saveSharedArchive(existing);
-        archiveCache = existing;
+          if(existingIds.has(normalized.id)) updated++; else added++;
+          await saveRecord(normalized);
+        }
         renderArchiveList();
         showArchiveIoStatus(`Imported ${added} new, updated ${updated} existing — now visible to the whole team.`, 'success');
       }catch(err){

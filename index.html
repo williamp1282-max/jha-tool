@@ -237,6 +237,27 @@
   .row-remove-btn:hover{color:var(--danger);}
 
   /* ---------- Buttons / toolbar ---------- */
+  .editing-status-row{
+    max-width:1360px;
+    margin:18px auto 0;
+    display:flex;
+    justify-content:center;
+  }
+  .editing-status{
+    font-size:12px;
+    font-weight:600;
+    color:var(--ink-soft);
+    background:#f3f1ea;
+    border:1px solid var(--line);
+    border-radius:20px;
+    padding:5px 14px;
+  }
+  .editing-status.is-editing{
+    color:var(--hazard-dark);
+    background:#fff;
+    border-color:var(--hazard);
+  }
+
   .toolbar{
     display:flex;
     gap:10px;
@@ -743,10 +764,15 @@
   <div class="footer-credit">Developed by Bill Pease, built with Claude</div>
 </div>
 
+<div class="editing-status-row no-print">
+  <span id="editingStatus" class="editing-status">New JHA (not yet saved)</span>
+</div>
+
 <div class="toolbar no-print">
   <div class="group">
     <button class="btn primary" id="printBtn">🖨 Print / Save PDF</button>
     <button class="btn accent" id="saveBtn">💾 Save JHA</button>
+    <button class="btn" id="saveAsNewBtn">🗐 Save as New</button>
     <button class="btn" id="loadBtn">🔍 Search JHAs</button>
   </div>
   <div class="group">
@@ -1105,24 +1131,58 @@
     await handleAuthAwareResponse(res);
   }
 
+  function updateEditingStatus(){
+    const el = document.getElementById('editingStatus');
+    if(currentRecordId){
+      const task = document.getElementById('task').value.trim();
+      el.textContent = 'Editing: ' + (task || '(untitled JHA)');
+      el.classList.add('is-editing');
+    } else {
+      el.textContent = 'New JHA (not yet saved)';
+      el.classList.remove('is-editing');
+    }
+  }
+  // Keep the label's task name in sync as the person types, not just when a
+  // record is opened/saved.
+  document.getElementById('task').addEventListener('input', updateEditingStatus);
+
+  async function performSave(forceNew){
+    const data = collectState();
+    const record = {
+      id: forceNew ? undefined : (currentRecordId || undefined),
+      jhaNo: data.jhaNo,
+      task: data.task,
+      location: data.location,
+      savedAt: new Date().toISOString(),
+      data
+    };
+    const savedId = await saveRecord(record);
+    currentRecordId = savedId;
+    updateEditingStatus();
+    return savedId;
+  }
+
   document.getElementById('saveBtn').addEventListener('click', async () => {
     const btn = document.getElementById('saveBtn');
     btn.disabled = true;
     try{
-      const data = collectState();
-      const record = {
-        id: currentRecordId || undefined,
-        jhaNo: data.jhaNo,
-        task: data.task,
-        location: data.location,
-        savedAt: new Date().toISOString(),
-        data
-      };
-      const savedId = await saveRecord(record);
-      currentRecordId = savedId;
+      await performSave(false);
       flashButton('saveBtn', 'Saved ✓');
     }catch(e){
       alert('Could not save this JHA to the shared archive: ' + e.message);
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('saveAsNewBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('saveAsNewBtn');
+    btn.disabled = true;
+    try{
+      await performSave(true);
+      flashButton('saveAsNewBtn', 'Saved as new ✓');
+    }catch(e){
+      alert('Could not save this as a new JHA: ' + e.message);
     }finally{
       btn.disabled = false;
     }
@@ -1201,6 +1261,7 @@
           const record = await fetchRecord(meta.id);
           applyState(record.data);
           currentRecordId = meta.id;
+          updateEditingStatus();
           document.getElementById('archiveOverlay').classList.remove('open');
         }catch(e){
           alert('Could not open that JHA: ' + e.message);
@@ -1212,7 +1273,7 @@
         if(!confirm(`Delete the saved JHA "${taskLabel}"? This removes it for the whole team and can't be undone.`)) return;
         try{
           await deleteRecord(meta.id);
-          if(currentRecordId === meta.id) currentRecordId = null;
+          if(currentRecordId === meta.id){ currentRecordId = null; updateEditingStatus(); }
           renderArchiveList();
         }catch(e){
           alert('Could not delete: ' + e.message);
@@ -1371,6 +1432,7 @@
     applyState({});
     addStep(); addStep(); addStep();
     addSig(); addSig(); addSig();
+    updateEditingStatus();
   });
 
   // ---------- AI missed-hazard check ----------

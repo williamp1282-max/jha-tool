@@ -1163,6 +1163,14 @@
   }
 
   document.getElementById('saveBtn').addEventListener('click', async () => {
+    if(currentRecordId){
+      const taskName = document.getElementById('task').value.trim() || '(untitled JHA)';
+      const proceed = confirm(
+        `This will overwrite the previously saved version of "${taskName}" in the shared archive. ` +
+        `This action cannot be undone. Do you want to continue?`
+      );
+      if(!proceed) return;
+    }
     const btn = document.getElementById('saveBtn');
     btn.disabled = true;
     try{

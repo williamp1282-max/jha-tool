@@ -747,7 +747,7 @@
   <div class="group">
     <button class="btn primary" id="printBtn">🖨 Print / Save PDF</button>
     <button class="btn accent" id="saveBtn">💾 Save JHA</button>
-    <button class="btn" id="loadBtn">📂 Open Saved JHAs</button>
+    <button class="btn" id="loadBtn">🔍 Search JHAs</button>
   </div>
   <div class="group">
     <button class="btn ghost danger-outline" id="newBtn">＋ New JHA</button>
@@ -1497,7 +1497,7 @@
     setTimeout(() => btn.textContent = original, 1200);
   }
 
-  // Start with a blank form — past JHAs are reachable via "Open Saved JHAs"
+  // Start with a blank form — past JHAs are reachable via "Search JHAs"
   // rather than auto-restoring the last one, so you always begin fresh.
   addStep(); addStep(); addStep();
   addSig(); addSig(); addSig();

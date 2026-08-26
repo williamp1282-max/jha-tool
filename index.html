@@ -957,7 +957,7 @@
       const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
       return [cx*scaleX, cy*scaleY];
     }
-    function start(e){ drawing=true; [lastX,lastY]=pos(e); e.preventDefault(); }
+    function start(e){ drawing=true; [lastX,lastY]=pos(e); markDirty(); e.preventDefault(); }
     function move(e){
       if(!drawing) return;
       const [x,y] = pos(e);
@@ -1079,6 +1079,13 @@
   // archive — so two people working on different JHAs at once don't clobber
   // each other's changes.
   let currentRecordId = null;
+  // The savedAt timestamp of the record as it was when we last loaded/saved
+  // it — used to detect if someone else has saved a newer version since.
+  let currentRecordSavedAt = null;
+  // Tracks whether anything has changed since the last save/load, so we can
+  // warn before the tab closes with unsaved work still on the page.
+  let hasUnsavedChanges = false;
+  function markDirty(){ hasUnsavedChanges = true; }
 
   function generateRecordId(){
     return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
@@ -1158,6 +1165,8 @@
     };
     const savedId = await saveRecord(record);
     currentRecordId = savedId;
+    currentRecordSavedAt = record.savedAt;
+    hasUnsavedChanges = false;
     updateEditingStatus();
     return savedId;
   }
@@ -1165,8 +1174,25 @@
   document.getElementById('saveBtn').addEventListener('click', async () => {
     if(currentRecordId){
       const taskName = document.getElementById('task').value.trim() || '(untitled JHA)';
+      let conflictNote = '';
+
+      // Check whether someone else has saved a newer version of this record
+      // since we opened it, so we don't silently clobber their work.
+      try{
+        const latest = await fetchRecord(currentRecordId);
+        if(latest && latest.savedAt && currentRecordSavedAt && latest.savedAt !== currentRecordSavedAt){
+          conflictNote = `This JHA was updated by someone else at ${formatSavedAt(latest.savedAt)}, after you opened your copy. `;
+        }
+      }catch(e){
+        if(String(e.message || '').toLowerCase().includes('not found')){
+          conflictNote = 'This JHA appears to have been deleted by someone else since you opened it. Saving now will re-create it as a new entry. ';
+        }
+        // Any other lookup failure: proceed with the standard warning below
+        // rather than blocking the save entirely.
+      }
+
       const proceed = confirm(
-        `This will overwrite the previously saved version of "${taskName}" in the shared archive. ` +
+        `${conflictNote}This will overwrite the previously saved version of "${taskName}" in the shared archive. ` +
         `This action cannot be undone. Do you want to continue?`
       );
       if(!proceed) return;
@@ -1269,6 +1295,8 @@
           const record = await fetchRecord(meta.id);
           applyState(record.data);
           currentRecordId = meta.id;
+          currentRecordSavedAt = record.savedAt || null;
+          hasUnsavedChanges = false;
           updateEditingStatus();
           document.getElementById('archiveOverlay').classList.remove('open');
         }catch(e){
@@ -1437,9 +1465,11 @@
   document.getElementById('newBtn').addEventListener('click', () => {
     if(!confirm('Start a new blank JHA? Unsaved changes will be lost.')) return;
     currentRecordId = null;
+    currentRecordSavedAt = null;
     applyState({});
     addStep(); addStep(); addStep();
     addSig(); addSig(); addSig();
+    hasUnsavedChanges = false;
     updateEditingStatus();
   });
 
@@ -1654,6 +1684,26 @@
   window.addEventListener('afterprint', () => {
     removePrintOverlays();
     restoreDateInputs();
+  });
+
+  // ---------- Unsaved-changes warning ----------
+  // Delegated listeners catch every field, including ones added dynamically
+  // (task steps, signature rows) after the page first loads. The archive
+  // search/filter fields and the AI panel aren't part of the JHA itself, so
+  // changes there don't count as "unsaved work."
+  document.addEventListener('input', (e) => {
+    if(e.target.closest('#archiveOverlay') || e.target.closest('#aiOverlay')) return;
+    markDirty();
+  });
+  document.addEventListener('change', (e) => {
+    if(e.target.closest('#archiveOverlay') || e.target.closest('#aiOverlay')) return;
+    markDirty();
+  });
+
+  window.addEventListener('beforeunload', (e) => {
+    if(!hasUnsavedChanges) return;
+    e.preventDefault();
+    e.returnValue = ''; // required for the browser's native confirmation prompt to appear
   });
 })();
 </script>
